@@ -1,0 +1,19 @@
+{
+  "name": "ns-bot",
+  "version": "0.1.0",
+  "description": "Read-only NetSuite assistant using Claude and the NetSuite AI Connector Service",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "check": "node src/check.js",
+    "ask": "node src/ask.js",
+    "chat": "node src/chat.js",
+    "refresh": "node src/refresh-token.js",
+    "pkce": "node src/pkce.js"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "dotenv": "^16.4.5"
+  }
+}

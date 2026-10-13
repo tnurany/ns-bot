@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Ask a question",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/ask.js",
+      "args": ["How many subsidiaries do we have and what are they called?"],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Chat",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/chat.js",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Check setup",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/check.js",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}
