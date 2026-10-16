@@ -9,11 +9,21 @@
     "ask": "node src/ask.js",
     "chat": "node src/chat.js",
     "refresh": "node src/refresh-token.js",
-    "pkce": "node src/pkce.js"
+    "pkce": "node src/pkce.js",
+    "teams": "node src/teams.js",
+    "teams:local": "node src/teams.js --local",
+    "playground": "agentsplayground",
+    "teams:package": "cd appPackage && zip -q -X -j ../ns-bot-teams.zip manifest.json color.png outline.png && echo Created ns-bot-teams.zip"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=22.12"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
+    "@microsoft/teams.apps": "^2.1.0",
     "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@microsoft/m365agentsplayground": "^0.2.29"
   }
 }

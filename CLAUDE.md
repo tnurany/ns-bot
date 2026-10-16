@@ -3,13 +3,14 @@
 Read-only NetSuite assistant. Claude answers questions by querying NetSuite
 through Oracle's NetSuite AI Connector Service (MCP).
 
-Currently at Stage 1/2 of a staged build: prove the connection, then a chat
-loop. Teams bot and per-user OAuth come later.
+Stages 1/2 (connection, chat loop) are done. Stage 3 is the Teams bot, running
+locally against Azure Bot Service. Hosting and per-user OAuth come later.
 
 ## Stack
 
-Node 20+, ESM (`"type": "module"`), `@anthropic-ai/sdk`, `dotenv`. No build
-step, no TypeScript, no test framework yet. Run things with `npm run <script>`.
+Node 22.12+ (`.nvmrc` pins 24), ESM (`"type": "module"`), `@anthropic-ai/sdk`,
+`@microsoft/teams.apps`, `dotenv`. No build step, no TypeScript, no test
+framework yet. Run things with `npm run <script>`.
 
 ## Layout
 
@@ -17,9 +18,12 @@ step, no TypeScript, no test framework yet. Run things with `npm run <script>`.
 prompts/*.md    System prompt, split by concern, concatenated in filename order
 src/config.js   Env loading and validation
 src/prompt.js   Concatenates prompts/*.md
+appPackage/     Teams app manifest and icons
 src/claude.js   The API call and output formatting
+src/core.js     Conversation history, result expiry, turn limit (chat + Teams)
 src/ask.js      One question
 src/chat.js     Conversation loop
+src/teams.js    Teams bot
 src/check.js    Preflight diagnostics
 src/pkce.js     Full OAuth authorization flow
 src/refresh-token.js  Token refresh
@@ -67,10 +71,39 @@ src/refresh-token.js  Token refresh
 
 - The MCP connector is server-side: Anthropic's API is the MCP client. We pass
   `mcp_servers` with an `authorization_token`. We do not write an MCP client.
-- **The beta header value and `tool_configuration` shape have changed across
-  revisions.** Keep both configurable from `.env`. On a 400 mentioning either,
-  read the error and check the docs rather than guessing.
+- **The connector beta has changed shape across revisions.** Since
+  `mcp-client-2025-11-20`, tool blocking is an `mcp_toolset` entry in `tools`
+  with `configs: {name: {enabled: false}}`; the 2025-04-04
+  `tool_configuration` is rejected. The old code retried without the filter
+  and silently exposed the write tools on every request. Never add a fallback that
+  drops `configs`. On a 400, read the error and check the docs.
 - The connector supports tool calls only, not MCP resources or prompts.
+- **Thinking tokens count against `max_tokens`.** Thinking is on by default on
+  current models. A 4,000 cap was used up by thinking plus pagination before
+  any answer text. 16,000 is the ceiling for non-streaming requests; going
+  higher means streaming.
+- **The connector's server-side tool loop pauses after 10 iterations**
+  (`stop_reason: "pause_turn"`). `askClaude` resumes by resending the turn so
+  far as the assistant message, with no new user message.
+- **Thinking blocks are not stored in history.** They are bound to the exact
+  prior history, and result expiry rewrites it; replaying them after the
+  rewrite is a 400 on accounts created on or after 2026-08-31.
+
+## Teams notes
+
+- **Teams times out a request after about 15 seconds and retries.** Answers
+  take 30-60s, so `teams.js` must not await the answer inside the handler.
+  It starts the work, returns, and sends the reply later.
+- **Teams SDK DevTools (`@microsoft/teams.dev`) is deprecated** and stuck at
+  2.0.12. Local testing uses Agents Playground (`npm run playground`).
+- **Teams credentials are `TEAMS_*` in `.env`, passed to `App` explicitly.**
+  The SDK's default env names (`CLIENT_ID`, `CLIENT_SECRET`) are too easily
+  confused with `NS_CLIENT_ID`/`NS_CLIENT_SECRET`.
+- **`--local` disables request authentication**, so it binds to 127.0.0.1
+  only. Never deploy with it.
+- **Expired-result notes must say they were added after the fact.** A bare
+  "expired" stub before an old answer makes the model tell the user its
+  earlier answer had no data behind it.
 
 ## Conventions
 

@@ -5,17 +5,15 @@
  *
  * Commands: exit, reset, cost, verbose
  *
- * The key concept: the API is stateless. Every request carries the entire
- * conversation, INCLUDING the mcp_tool_use and mcp_tool_result blocks. Strip
- * those out to save tokens and the model forgets what it looked up, then
- * re-queries or contradicts itself.
+ * History, result expiry and the turn limit live in core.js, shared with the
+ * Teams bot, so a follow-up behaves the same here as it does in Teams.
  */
 import readline from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { loadSystemPrompt } from "./prompt.js";
-import { askClaude, printResponse, explainError } from "./claude.js";
+import { ask, reset, freshnessNote } from "./core.js";
+import { printResponse, explainError } from "./claude.js";
 
-const messages = [];
+const CONVERSATION = "terminal";
 let totalIn = 0;
 let totalOut = 0;
 let verbose = true;
@@ -31,7 +29,7 @@ while (true) {
   if (q === "exit" || q === "quit") break;
 
   if (q === "reset") {
-    messages.length = 0;
+    reset(CONVERSATION);
     console.log("(history cleared)");
     continue;
   }
@@ -45,17 +43,12 @@ while (true) {
     continue;
   }
 
-  messages.push({ role: "user", content: q });
-
   try {
-    // Prompt files are reloaded each turn, so you can edit them in another
-    // window and see the effect on the next question.
-    const res = await askClaude({ system: loadSystemPrompt(), messages });
-
-    // Push the whole assistant turn. Do not filter the tool blocks out.
-    messages.push({ role: "assistant", content: res.content });
-
+    const result = await ask(CONVERSATION, q);
+    const res = result.response;
     printResponse(res, { verbose });
+    const note = freshnessNote(result);
+    if (note) console.log(`\x1b[90m[data] ${note}\x1b[0m`);
 
     totalIn += res.usage?.input_tokens || 0;
     totalOut += res.usage?.output_tokens || 0;
@@ -68,7 +61,6 @@ while (true) {
     }
   } catch (err) {
     explainError(err);
-    messages.pop(); // drop the failed turn so history stays valid
   }
 }
 

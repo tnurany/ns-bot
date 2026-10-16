@@ -1,0 +1,45 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.25/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.25",
+  "version": "0.1.1",
+  "id": "a8099cd6-a6aa-4fc4-8ff3-da44fc1f8fa9",
+  "developer": {
+    "name": "Tommy Car Wash Systems",
+    "websiteUrl": "https://www.tommycarwash.com",
+    "privacyUrl": "https://www.tommycarwash.com",
+    "termsOfUseUrl": "https://www.tommycarwash.com"
+  },
+  "name": {
+    "short": "NS Bot",
+    "full": "NS Bot: NetSuite questions"
+  },
+  "description": {
+    "short": "Ask read-only questions about NetSuite data.",
+    "full": "NS Bot answers questions about NetSuite data in plain English. It reads NetSuite through Oracle's NetSuite AI Connector Service and cannot create or change records."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#1B3A5C",
+  "bots": [
+    {
+      "botId": "a8099cd6-a6aa-4fc4-8ff3-da44fc1f8fa9",
+      "scopes": ["personal"],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["personal"],
+          "commands": [
+            { "title": "help", "description": "What NS Bot can do" },
+            { "title": "refresh", "description": "Pull fresh NetSuite data for the last answer" },
+            { "title": "reset", "description": "Clear this chat's history and start fresh" }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": ["identity"],
+  "validDomains": []
+}

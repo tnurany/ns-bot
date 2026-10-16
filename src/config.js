@@ -10,10 +10,21 @@ function need(name) {
   return v;
 }
 
+// claude.js sends the mcp_toolset shape, which this revision introduced. The
+// 2025-04-04 revision filtered tools a different way, and the API stopped
+// accepting that filter, which silently exposed the write tools.
+const betaHeader = process.env.MCP_BETA_HEADER || "mcp-client-2025-11-20";
+if (betaHeader.includes("2025-04-04")) {
+  throw new Error(
+    "MCP_BETA_HEADER=mcp-client-2025-04-04 is the old MCP connector revision.\n" +
+      "Set MCP_BETA_HEADER=mcp-client-2025-11-20 in .env, or delete the line."
+  );
+}
+
 export const config = {
   anthropicKey: need("ANTHROPIC_API_KEY"),
   model: process.env.CLAUDE_MODEL || "claude-sonnet-5-5",
-  betaHeader: process.env.MCP_BETA_HEADER || "mcp-client-2025-04-04",
+  betaHeader,
 
   nsAccount: need("NS_ACCOUNT"),
   nsMcpUrl: need("NS_MCP_URL"),
