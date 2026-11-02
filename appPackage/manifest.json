@@ -1,8 +1,8 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.25/MicrosoftTeams.schema.json",
   "manifestVersion": "1.25",
-  "version": "0.1.1",
-  "id": "a8099cd6-a6aa-4fc4-8ff3-da44fc1f8fa9",
+  "version": "0.1.2",
+  "id": "d97bb518-ad2f-4395-8d69-90d894679c65",
   "developer": {
     "name": "Tommy Car Wash Systems",
     "websiteUrl": "https://www.tommycarwash.com",
@@ -24,7 +24,7 @@
   "accentColor": "#1B3A5C",
   "bots": [
     {
-      "botId": "a8099cd6-a6aa-4fc4-8ff3-da44fc1f8fa9",
+      "botId": "d97bb518-ad2f-4395-8d69-90d894679c65",
       "scopes": ["personal"],
       "supportsFiles": false,
       "isNotificationOnly": false,

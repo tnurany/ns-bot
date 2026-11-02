@@ -69,7 +69,8 @@ For real Teams, add `TEAMS_CLIENT_ID`, `TEAMS_TENANT_ID` and
 
 1. `npm run teams` (listens on port 3978)
 2. Expose it over HTTPS with a dev tunnel. One-time setup:
-   `brew install --cask devtunnel`, `devtunnel user login`, then create a
+   `curl -sL https://aka.ms/DevTunnelCliInstall | bash` (or
+   `brew install --cask devtunnel`), `devtunnel user login`, then create a
    persistent tunnel so the URL stays the same between runs:
    `devtunnel create ns-bot --allow-anonymous` and
    `devtunnel port create ns-bot -p 3978`. Each session: `devtunnel host ns-bot`.
