@@ -24,6 +24,8 @@ src/core.js     Conversation history, result expiry, turn limit (chat + Teams)
 src/ask.js      One question
 src/chat.js     Conversation loop
 src/teams.js    Teams bot
+src/log.js      Question log (logs/*.jsonl) and the "wrong" flag
+src/review.js   Digest + CSV from the log (npm run review)
 src/check.js    Preflight diagnostics
 src/pkce.js     Full OAuth authorization flow
 src/refresh-token.js  Token refresh
@@ -104,6 +106,14 @@ src/refresh-token.js  Token refresh
 - **Expired-result notes must say they were added after the fact.** A bare
   "expired" stub before an old answer makes the model tell the user its
   earlier answer had no data behind it.
+- **`logs/` holds NetSuite data and user identities.** Tool results are
+  stored as a 500-char preview plus row count, never the full rows. Logging
+  is wrapped so a write failure can never break an answer. Only the Teams
+  bot logs; `chat` is the developer tool and stays out of the data.
+- **NetSuite result shapes differ by tool.** Saved searches return a bare
+  JSON array; SuiteQL returns `{resultCount, totalResults, data}`;
+  metadata returns `{success, metadata}`. `rowCount` in log.js handles all
+  three.
 
 ## Conventions
 

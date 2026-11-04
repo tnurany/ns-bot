@@ -14,6 +14,7 @@ import http from "node:http";
 import { App, ExpressAdapter } from "@microsoft/teams.apps";
 import { ask, reset, freshnessNote, TTL_MINUTES } from "./core.js";
 import { answerText, printResponse, explainError } from "./claude.js";
+import { logQuestion, logCommand, flagLast, whoFrom, LOG_DIR } from "./log.js";
 
 const local = process.argv.includes("--local");
 const port = Number(process.env.PORT) || 3978;
@@ -38,6 +39,7 @@ const HELP =
   `Data I pull is reused for follow-up questions for ${TTL_MINUTES} minutes, then pulled ` +
   "again. Each answer says when its data was pulled.\n\n" +
   "- **refresh**: pull fresh data for the last answer now\n" +
+  "- **wrong**: flag the last answer for review, e.g. `wrong, that's last year's total`\n" +
   "- **reset**: clear this chat's history and start over";
 
 const server = http.createServer();
@@ -63,42 +65,59 @@ const app = new App({
 app.on("message", async ({ activity, send }) => {
   const text = (activity.text || "").trim();
   if (!text) return;
-  const conversationId = activity.conversation.id;
+  const conversation = activity.conversation.id;
+  const who = whoFrom(activity);
 
   const command = text.toLowerCase();
   if (command === "reset") {
-    reset(conversationId);
+    reset(conversation);
+    logCommand({ conversation, who, command });
     await send("History cleared. Ask a new question.");
     return;
   }
   if (command === "help") {
+    logCommand({ conversation, who, command });
     await send(HELP);
+    return;
+  }
+  // "wrong", "wrong: the total is off", "Wrong - that's last year"
+  const flag = /^wrong\b[\s,:;.-]*(.*)$/is.exec(text);
+  if (flag) {
+    const flagged = flagLast({ conversation, who, note: flag[1].trim() });
+    await send(
+      flagged
+        ? "Flagged for review. Thanks, that helps improve the answers."
+        : "Nothing to flag yet in this chat. Ask a question first, then reply **wrong** if the answer is off."
+    );
     return;
   }
 
   // Who asked what, with the tool trace printed after it: the audit trail.
-  const who = activity.from.name || activity.from.aadObjectId || activity.from.id;
-  console.log(`\n\x1b[1m[${new Date().toLocaleString()}] ${who}:\x1b[0m ${text}`);
+  console.log(`\n\x1b[1m[${new Date().toLocaleString()}] ${who.name || who.id}:\x1b[0m ${text}`);
 
   // Deliberately not awaited. See the header comment.
-  answer(conversationId, text, send);
+  answer(conversation, who, text, send);
 });
 
-async function answer(conversationId, text, send) {
+async function answer(conversation, who, text, send) {
   const typing = () => send({ type: "typing" }).catch(() => {});
   typing();
   // Teams drops the typing indicator after a few seconds, so keep it alive
   // for as long as NetSuite takes.
   const timer = setInterval(typing, 3000);
+  const started = Date.now();
 
   let reply;
+  let result;
+  let error;
   try {
-    const result = await ask(conversationId, text);
+    result = await ask(conversation, text);
     printResponse(result.response);
     reply = answerText(result.response);
     const note = freshnessNote(result);
     if (note) reply += `\n\n_${note}_`;
   } catch (err) {
+    error = err;
     explainError(err);
     reply = userFacingError(err);
   } finally {
@@ -106,13 +125,27 @@ async function answer(conversationId, text, send) {
     clearInterval(timer);
   }
 
+  let delivered = false;
   try {
     for (const part of splitForTeams(reply)) {
       await send({ type: "message", text: part, textFormat: "markdown" });
     }
+    delivered = true;
   } catch (err) {
     console.error("\x1b[31mCould not deliver the answer to Teams:\x1b[0m", err.message);
   }
+
+  logQuestion({
+    conversation,
+    who,
+    question: text,
+    response: result?.response,
+    pulledAt: result?.pulledAt,
+    fresh: result?.fresh,
+    seconds: (Date.now() - started) / 1000,
+    error,
+    delivered,
+  });
 }
 
 // Teams rejects a message over about 28 KB, markup included. Rare, but a
@@ -156,6 +189,11 @@ function userFacingError(err) {
   if (err?.status === 429) {
     return "NS Bot is getting too many requests right now. Try again in a minute.";
   }
+  // The SDK already retried twice. A network blip on the host or a short
+  // outage at Anthropic looks the same from here, and both pass.
+  if (err?.name === "APIConnectionError" || /connection error|ECONNRESET|ETIMEDOUT|ENOTFOUND/i.test(msg)) {
+    return "NS Bot couldn't reach its AI service just now. This usually passes within a minute; please try again.";
+  }
   // 401 can be the NetSuite token or the Anthropic key; either way it is
   // the owner's to fix, so the message does not guess which.
   if (msg.includes("invalid_grant") || msg.includes("Cannot refresh") || err?.status === 401) {
@@ -177,5 +215,6 @@ if (local) {
 } else {
   server.listen(port, () => {
     console.log(`NS Bot on port ${port}, messaging endpoint path /api/messages`);
+    console.log(`Logging questions and answers to ${LOG_DIR} (npm run review)`);
   });
 }

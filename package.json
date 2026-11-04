@@ -13,7 +13,8 @@
     "teams": "node src/teams.js",
     "teams:local": "node src/teams.js --local",
     "playground": "agentsplayground",
-    "teams:package": "cd appPackage && zip -q -X -j ../ns-bot-teams.zip manifest.json color.png outline.png && echo Created ns-bot-teams.zip"
+    "teams:package": "cd appPackage && zip -q -X -j ../ns-bot-teams.zip manifest.json color.png outline.png && echo Created ns-bot-teams.zip",
+    "review": "node src/review.js"
   },
   "engines": {
     "node": ">=22.12"

@@ -86,6 +86,29 @@ and the tool trace for every question.
 `appPackage/` holds the manifest and placeholder icons. Bump `version` in
 `manifest.json` whenever you re-upload a changed package.
 
+## Logs and review
+
+The Teams bot writes every question, answer and command to `logs/`, one
+JSON line per turn, one file per day (`LOG_DIR` in `.env` moves it). Each
+question entry keeps who asked, the exact NetSuite calls (tool, full input
+such as the SuiteQL, row count, 500-character result preview), whether data
+was pulled fresh, tokens, seconds, any error, and whether the reply reached
+Teams. Users reply `wrong` (optionally `wrong, that's last year's total`) to
+flag the last answer.
+
+```bash
+npm run review          # last 7 days
+npm run review -- 30    # last 30 days
+```
+
+Prints totals, usage by person, flagged answers, errors, the slowest
+questions and every question with a one-line answer, and writes
+`logs/review-<date>.csv` for Excel.
+
+The logs contain NetSuite data. Treat them like NetSuite exports: `logs/` is
+gitignored, and the folder lives wherever the bot runs. The terminal `chat`
+does not log, so developer testing stays out of the data.
+
 ## Token refresh is automatic
 
 - **Access token: about 1 hour.** `src/token.js` refreshes it before any
@@ -126,6 +149,8 @@ src/
   ask.js           One question (Stage 1)
   chat.js          Conversation loop (Stage 2)
   teams.js         Teams bot (Stage 3)
+  log.js           Question log: JSONL per day, flagging
+  review.js        Digest and CSV from the log
   check.js         Preflight diagnostics
   pkce.js          Full OAuth authorization
   token.js         Token lifecycle: refresh, persist, expiry
