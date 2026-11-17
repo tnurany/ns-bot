@@ -80,7 +80,7 @@ For real Teams, add `TEAMS_CLIENT_ID`, `TEAMS_TENANT_ID` and
 4. `npm run teams:package`, then in Teams: Apps > Manage your apps > Upload an
    app > upload `ns-bot-teams.zip`. Needs custom app upload permission.
 
-In Teams, `help` and `reset` are commands. The console prints who asked what
+In Teams, `help`, `reset`, `refresh`, `wrong` and `budget` are commands. The console prints who asked what
 and the tool trace for every question.
 
 `appPackage/` holds the manifest and placeholder icons. Bump `version` in
@@ -90,7 +90,7 @@ and the tool trace for every question.
 
 The Teams bot writes every question, answer and command to `logs/`, one
 JSON line per turn, one file per day (`LOG_DIR` in `.env` moves it). Each
-question entry keeps who asked, the exact NetSuite calls (tool, full input
+question entry keeps who asked, their email and department, the exact NetSuite calls (tool, full input
 such as the SuiteQL, row count, 500-character result preview), whether data
 was pulled fresh, tokens, seconds, any error, and whether the reply reached
 Teams. Users reply `wrong` (optionally `wrong, that's last year's total`) to
@@ -108,6 +108,84 @@ questions and every question with a one-line answer, and writes
 The logs contain NetSuite data. Treat them like NetSuite exports: `logs/` is
 gitignored, and the folder lives wherever the bot runs. The terminal `chat`
 does not log, so developer testing stays out of the data.
+
+### Department and email lookup
+
+Department and email come from Entra ID, where Teams reads them for the
+profile card. The bot looks them up through Microsoft Graph as its own app, once a day
+per person, and `review` groups questions by it. That takes one permission
+on the bot's app registration, granted once:
+
+1. entra.microsoft.com > App registrations > All applications > the bot's
+   app (the `TEAMS_CLIENT_ID`) > API permissions > Add a permission.
+2. Microsoft Graph > Application permissions > `User.Read.All` > Add.
+3. Grant admin consent for the tenant. Only a Global Administrator can click
+   this for Graph application permissions; Application Administrator cannot.
+
+`User.ReadBasic.All` looks like the smaller grant but returns department
+blank. Until consent is granted the bot says so at startup and logs
+questions with no department or email. Playground sessions carry no Entra ID and are
+never looked up.
+
+## Spend limits
+
+Each person has a dollar budget per rolling 4 hours, per calendar week
+(Monday to Sunday) and per calendar month, in the server's local time.
+`limits.jsonc` has three tiers. It is JSON with `//` comments, so the file
+explains itself and lists every Entra department commented out; delete the
+`//` in front of one to give it its own numbers:
+
+```jsonc
+{
+  "company": { "4h": 2, "week": 10, "month": 30 },
+  "departments": {
+    "IT_default": { "match": ["IT", "Information Technology"], "4h": 2, "week": 10, "month": 30 },
+    "Purchasing": { "4h": 2, "week": 10, "month": 30 }
+  },
+  "people": {
+    "someone@tommycarwash.com": { "week": 25 }
+  }
+}
+```
+
+- `company`: everyone not covered below, including people with no
+  department in Entra and departments with no entry.
+- `departments`: an entry matches its own name, or every Entra spelling
+  listed under `match`, since one team is often spelled several ways
+  (case does not matter). `npm run departments` lists every department in
+  Entra ID with its headcount and which entry covers it, in the file's own
+  syntax for pasting; uncomment only the ones that should differ from
+  `company`.
+- `people`: any window for one person, keyed by email or Entra object ID.
+
+A window left out means no limit; `0` blocks. The file is reread
+when it changes, so edits need no restart; a typo keeps the last good
+version and prints the error.
+
+Spend is the list-price cost of each answered question (`src/cost.js`),
+rebuilt from the log at startup, so a restart keeps everyone's totals. The
+check runs before a question goes to Claude: over any limit, the bot says
+which one and when it resets, and logs the refusal.
+
+People never see dollar amounts. `budget` shows their usage as a percentage
+of each limit, and an answer that carries any window past 75, 90, 95 or
+100 percent ends with a one-line note saying so (and, at 100, when they can
+ask again). Admins see the dollar figures in `limit <email>`.
+
+Admins listed in `LIMIT_ADMINS` (emails, or Entra object IDs until the
+Graph permission is granted) can edit a person's limits from Teams:
+
+```
+limit someone@tommycarwash.com              their usage and limits
+limit set someone@tommycarwash.com week 25  one window; "default" removes it
+limit clear someone@tommycarwash.com        all custom limits off
+```
+
+These edit `limits.jsonc` in place, comments included, and every command
+is in the log. Company-wide and department limits are edited in the file.
+When hosted, set `LIMITS_FILE` to a path outside the deployed folder
+(`/home/limits.jsonc` on App Service) so a deploy does not overwrite
+limits set from Teams.
 
 ## Token refresh is automatic
 
@@ -140,6 +218,7 @@ prompts/       The system prompt, split by concern, concatenated in filename ord
   40-safety.md      What never to return
 
 appPackage/      Teams app manifest and icons
+limits.jsonc     Spend limits by department and person, with comments
 
 src/
   config.js        Env loading and validation
@@ -150,6 +229,10 @@ src/
   chat.js          Conversation loop (Stage 2)
   teams.js         Teams bot (Stage 3)
   log.js           Question log: JSONL per day, flagging
+  directory.js     Department and email lookup through Microsoft Graph
+  cost.js          Dollar cost of a request from its token usage
+  limits.js        Spend limits: limits.jsonc, the ledger, the admin commands
+  departments.js   Lists Entra departments with headcounts (npm run departments)
   review.js        Digest and CSV from the log
   check.js         Preflight diagnostics
   pkce.js          Full OAuth authorization
@@ -202,6 +285,10 @@ Setup > Integration > Manage Integrations > your record > AI Connector Service
 | Bot stalls with no answer | It called an interactive app tool. Check `BLOCKED_TOOLS` in `src/config.js` |
 | Teams shows typing, then nothing | Check the bot console. If the answer was printed, the reply could not be delivered: check the messaging endpoint and `TEAMS_*` values |
 | `401` in the bot console on every Teams message | Wrong `TEAMS_CLIENT_ID` or `TEAMS_TENANT_ID`, or the request did not come from Bot Service |
+| `No spend limits file at ...` at startup | `limits.jsonc` is missing where `LIMITS_FILE` points. Copy it from the repo |
+| `[limits] ... has a syntax error` | A hand edit broke the file, usually a missing comma or quote; the line number is in the message. The bot keeps the last good version until it is fixed |
+| "Only NS Bot admins can view or change spend limits" | Add your email (or Entra object ID while Graph is off) to `LIMIT_ADMINS` in `.env` and restart |
+| `[directory] Department lookup is off` at startup | The Graph permission `User.Read.All` is missing or not consented on the bot's app registration. See "Department and email lookup" |
 | Answer is confidently wrong | Read the trace. Usually pagination or a guessed field name. Add the correction to `prompts/` |
 
 ## Do not commit .env

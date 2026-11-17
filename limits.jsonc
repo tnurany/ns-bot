@@ -1,0 +1,95 @@
+// NS Bot spend limits: dollars per person, per rolling 4 hours, per calendar
+// week (Monday to Sunday) and per calendar month, in the server's local time.
+//
+// Three tiers, the most specific one wins:
+//   "company"      everyone not covered below: people with no department in
+//                  Entra, and departments with no entry here
+//   "departments"  an entry covers its own name, or every Entra spelling in its
+//                  "match" list, since one team is often spelled several ways
+//   "people"       one person, by email or Entra object ID, any window
+//
+// Leave a window out for no limit. 0 blocks. Lines starting with // are
+// ignored: to give a department its own limits, delete the // in front of it
+// and change the numbers. Names match regardless of case. The bot rereads
+// this file when it is saved, no restart. "npm run departments" prints the
+// current list from Entra with headcounts, in this same syntax.
+{
+  "company": { "4h": 2, "week": 10, "month": 30 },
+
+  "departments": {
+    // Every department in Entra as of 2026-11-04. These use the "company"
+    // limits until uncommented. Keep the comma at the end of each line.
+    // "Franchise Operations": { "4h": 2, "week": 10, "month": 30 },           // 35 people
+    // "Engineering": { "4h": 2, "week": 10, "month": 30 },                    // 33 people
+    // "Marketing": { "4h": 2, "week": 10, "month": 30 },                      // 30 people
+    // "Support": { "4h": 2, "week": 10, "month": 30 },                        // 23 people
+    // "Warehouse Operations": { "4h": 2, "week": 10, "month": 30 },           // 20 people
+    // "Project Coordination": { "4h": 2, "week": 10, "month": 30 },           // 19 people
+    // "Software Development": { "4h": 2, "week": 10, "month": 30 },           // 18 people
+    // "Warehouse": { "4h": 2, "week": 10, "month": 30 },                      // 13 people
+    // "Franchise Development": { "4h": 2, "week": 10, "month": 30 },          // 11 people
+    // "Service and Support": { "4h": 2, "week": 10, "month": 30 },            // 11 people
+    // "Fulfillment": { "4h": 2, "week": 10, "month": 30 },                    // 10 people
+    // "Administration": { "4h": 2, "week": 10, "month": 30 },                 // 10 people
+    // "Finance": { "4h": 2, "week": 10, "month": 30 },                        // 9 people
+    // "Equipment Support": { "4h": 2, "week": 10, "month": 30 },              // 9 people
+    // "Detergents": { "4h": 2, "week": 10, "month": 30 },                     // 8 people
+    // "Sales": { "4h": 2, "week": 10, "month": 30 },                          // 8 people
+    // "Retail Operations": { "4h": 2, "week": 10, "month": 30 },              // 7 people
+    // "Leadership": { "4h": 2, "week": 10, "month": 30 },                     // 7 people
+    // "Human Resources": { "4h": 2, "week": 10, "month": 30 },                // 7 people
+    // "Guest Services": { "4h": 2, "week": 10, "month": 30 },                 // 6 people
+    // "Building Services": { "4h": 2, "week": 10, "month": 30 },              // 6 people
+    // "Analytics": { "4h": 2, "week": 10, "month": 30 },                      // 6 people
+    // "Facilities": { "4h": 2, "week": 10, "month": 30 },                     // 5 people
+    // "Project Development": { "4h": 2, "week": 10, "month": 30 },            // 5 people
+    // "Real Estate": { "4h": 2, "week": 10, "month": 30 },                    // 4 people
+    // "Project Management": { "4h": 2, "week": 10, "month": 30 },             // 4 people
+    // "TXO - Administration": { "4h": 2, "week": 10, "month": 30 },           // 4 people
+    // "Install": { "4h": 2, "week": 10, "month": 30 },                        // 4 people
+    // "Learning and Development": { "4h": 2, "week": 10, "month": 30 },       // 4 people
+    // "Fabrication - Textiles": { "4h": 2, "week": 10, "month": 30 },         // 3 people
+    // "Production": { "4h": 2, "week": 10, "month": 30 },                     // 3 people
+    // "Admin": { "4h": 2, "week": 10, "month": 30 },                          // 3 people
+    // "Controls Systems": { "4h": 2, "week": 10, "month": 30 },               // 3 people
+    // "R&D": { "4h": 2, "week": 10, "month": 30 },                            // 3 people
+    // "Blending": { "4h": 2, "week": 10, "month": 30 },                       // 2 people
+    // "Fran Dev": { "4h": 2, "week": 10, "month": 30 },                       // 2 people
+    // "Supply Chain": { "4h": 2, "week": 10, "month": 30 },                   // 2 people
+    // "TX Admin": { "4h": 2, "week": 10, "month": 30 },                       // 2 people
+    // "Tommys Express Corporate Retail Stores": { "4h": 2, "week": 10, "month": 30 }, // 2 people
+    // "Controls Engineering": { "4h": 2, "week": 10, "month": 30 },           // 2 people
+    // "Inventory": { "4h": 2, "week": 10, "month": 30 },                      // 1 person
+    // "Client Services": { "4h": 2, "week": 10, "month": 30 },                // 1 person
+    // "Field Services": { "4h": 2, "week": 10, "month": 30 },                 // 1 person
+    // "Toledo": { "4h": 2, "week": 10, "month": 30 },                         // 1 person
+    // "Panels": { "4h": 2, "week": 10, "month": 30 },                         // 1 person
+    // "Engineering - Controls": { "4h": 2, "week": 10, "month": 30 },         // 1 person
+    // "Sales/Business Development": { "4h": 2, "week": 10, "month": 30 },     // 1 person
+    // "Fulfillment - Parts": { "4h": 2, "week": 10, "month": 30 },            // 1 person
+    // "Receiving": { "4h": 2, "week": 10, "month": 30 },                      // 1 person
+    // "Fabrication": { "4h": 2, "week": 10, "month": 30 },                    // 1 person
+    // "Digital Marketing": { "4h": 2, "week": 10, "month": 30 },              // 1 person
+    // "TXC Finance": { "4h": 2, "week": 10, "month": 30 },                    // 1 person
+    // "Construction Services": { "4h": 2, "week": 10, "month": 30 },          // 1 person
+    // "Engineering Support": { "4h": 2, "week": 10, "month": 30 },            // 1 person
+    // "Material - Inventory": { "4h": 2, "week": 10, "month": 30 },           // 1 person
+    // "Print Production": { "4h": 2, "week": 10, "month": 30 },               // 1 person
+    // "Accounting": { "4h": 2, "week": 10, "month": 30 },                     // 1 person
+    // "Distributor": { "4h": 2, "week": 10, "month": 30 },                    // 1 person
+    // "Services and Support": { "4h": 2, "week": 10, "month": 30 },           // 1 person
+    // "Chicago": { "4h": 2, "week": 10, "month": 30 },                        // 1 person
+    // "Holland": { "4h": 2, "week": 10, "month": 30 },                        // 1 person
+
+    // Active entries. The last one has no trailing comma.
+    "IT_default": { "match": ["IT", "Information Technology"], "4h": 2, "week": 10, "month": 30 },
+    "Purchasing": { "4h": 2, "week": 10, "month": 30 }
+  },
+
+  // One person, any window, keyed by email or Entra object ID. The "limit set"
+  // command in Teams writes entries here too. For example:
+  //   "someone@tommycarwash.com": { "week": 25 }
+  "people": {
+    "tarin.nurany@tommycarwash.com": { "week": 25 }
+  }
+}

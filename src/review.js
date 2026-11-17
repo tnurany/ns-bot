@@ -8,49 +8,28 @@
  * using it, what are they asking, what did they flag as wrong, what failed,
  * what was slow, and what is it costing.
  */
-import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import "dotenv/config";
-import { LOG_DIR } from "./log.js";
+import { LOG_DIR, readEntries } from "./log.js";
+import { costOf, MODEL } from "./cost.js";
 
 const days = Number(process.argv[2]) || 7;
-
-// Dollars per million tokens, Anthropic list prices. Update when the model
-// or the price list changes; the figure is an estimate, not an invoice.
-const PRICES = {
-  "claude-sonnet-5-5": { in: 2, out: 10 },
-  "claude-opus-5-5": { in: 4, out: 20 },
-  "claude-haiku-5-5": { in: 0.1, out: 0.5 },
-};
-const model = process.env.CLAUDE_MODEL || "claude-sonnet-5-5";
-const price = PRICES[model] || PRICES["claude-sonnet-5-5"];
 
 if (!existsSync(LOG_DIR)) {
   console.log(`No log directory at ${LOG_DIR} yet. It appears after the first Teams question.`);
   process.exit(0);
 }
 
-const since = new Date();
-since.setDate(since.getDate() - days);
-since.setHours(0, 0, 0, 0);
-
-const entries = readdirSync(LOG_DIR)
-  .filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f) && new Date(f.slice(0, 10)) >= since)
-  .sort()
-  .flatMap((f) => readFileSync(join(LOG_DIR, f), "utf8").split("\n").filter(Boolean))
-  .map((line) => {
-    try {
-      return JSON.parse(line);
-    } catch {
-      return null; // a half-written line from a crash mid-append
-    }
-  })
-  .filter(Boolean)
-  .sort((a, b) => a.at.localeCompare(b.at));
-
+const entries = readEntries(days);
 const questions = entries.filter((e) => e.kind === "question");
 const flags = entries.filter((e) => e.kind === "flag");
 const commands = entries.filter((e) => e.kind === "command");
+const blocked = entries.filter((e) => e.kind === "blocked");
+
+// Entries from before costs were logged are priced at today's list price.
+const costOfQ = (q) => q.cost ?? costOf(q.tokens);
+const money = (n) => `$${n.toFixed(2)}`;
 
 // Attach flags to the answers they are about. A flag written after a bot
 // restart has no id, so it goes to the previous question in that chat.
@@ -76,11 +55,24 @@ if (!questions.length) {
 }
 
 // Totals
-const users = new Map();
-for (const q of questions) users.set(name(q), (users.get(name(q)) || 0) + 1);
+const users = new Map(); // name -> { count, cost, department }
+for (const q of questions) {
+  const u = users.get(name(q)) || { count: 0, cost: 0, department: null };
+  u.count++;
+  u.cost += costOfQ(q);
+  u.department = q.who?.department || u.department;
+  users.set(name(q), u);
+}
+const depts = new Map(); // department -> { count, cost }
+for (const q of questions) {
+  const d = depts.get(q.who?.department || "(unknown)") || { count: 0, cost: 0 };
+  d.count++;
+  d.cost += costOfQ(q);
+  depts.set(q.who?.department || "(unknown)", d);
+}
 const tokIn = questions.reduce((s, q) => s + (q.tokens?.in || 0), 0);
 const tokOut = questions.reduce((s, q) => s + (q.tokens?.out || 0), 0);
-const cost = (tokIn * price.in + tokOut * price.out) / 1e6;
+const cost = questions.reduce((s, q) => s + costOfQ(q), 0);
 const errors = questions.filter((q) => q.error);
 const flagged = questions.filter((q) => q.flags);
 const undelivered = questions.filter((q) => !q.error && !q.delivered);
@@ -90,13 +82,32 @@ const fresh = questions.filter((q) => q.fresh).length;
 console.log(
   `${questions.length} questions from ${users.size} people, ${commands.length} commands\n` +
     `${fresh} pulled fresh NetSuite data, ${questions.length - fresh} answered from recent data or no data\n` +
-    `${flagged.length} flagged wrong, ${errors.length} errors, ${undelivered.length} not delivered to Teams\n` +
+    `${flagged.length} flagged wrong, ${errors.length} errors, ${undelivered.length} not delivered to Teams, ` +
+    `${blocked.length} blocked by spend limits\n` +
     `avg ${avgSec.toFixed(0)}s per answer, ${tokIn.toLocaleString()} tokens in / ${tokOut.toLocaleString()} out, ` +
-    `about $${cost.toFixed(2)} (${model})\n`
+    `about ${money(cost)} (${MODEL})\n`
 );
 
 console.log(`${B}By person${X}`);
-for (const [n, c] of [...users].sort((a, b) => b[1] - a[1])) console.log(`  ${String(c).padStart(4)}  ${n}`);
+for (const [n, u] of [...users].sort((a, b) => b[1].count - a[1].count)) {
+  console.log(`  ${String(u.count).padStart(4)}  ${money(u.cost).padStart(7)}  ${n}${u.department ? `  ${D}${u.department}${X}` : ""}`);
+}
+
+// Departments come from Entra ID through Graph (src/directory.js). All
+// unknown means the permission is not granted yet, so the section is skipped.
+if ([...depts.keys()].some((d) => d !== "(unknown)")) {
+  console.log(`\n${B}By department${X}`);
+  for (const [d, c] of [...depts].sort((a, b) => b[1].count - a[1].count)) {
+    console.log(`  ${String(c.count).padStart(4)}  ${money(c.cost).padStart(7)}  ${d}`);
+  }
+}
+
+if (blocked.length) {
+  console.log(`\n${B}${Y}Blocked by spend limits${X}`);
+  for (const b of blocked) {
+    console.log(`  ${D}${when(b.at)}${X} ${name(b)}: ${oneLine(b.question, 80)}  ${D}${b.window} ${money(b.spent)} of ${money(b.limit)}${X}`);
+  }
+}
 
 if (flagged.length) {
   console.log(`\n${B}${Y}Flagged as wrong${X}`);
@@ -128,10 +139,12 @@ for (const q of questions) {
 // makes Excel read it as UTF-8 instead of guessing.
 const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 const rows = [
-  ["time", "person", "chat", "question", "answer", "netsuite_calls", "queries", "fresh_data", "seconds", "tokens_in", "tokens_out", "error", "flagged", "flag_notes"],
+  ["time", "person", "email", "department", "chat", "question", "answer", "netsuite_calls", "queries", "fresh_data", "seconds", "tokens_in", "tokens_out", "cost", "error", "flagged", "flag_notes"],
   ...questions.map((q) => [
     new Date(q.at).toLocaleString(),
     name(q),
+    q.who?.email,
+    q.who?.department,
     q.who?.chat,
     q.question,
     q.answer,
@@ -141,6 +154,7 @@ const rows = [
     q.seconds,
     q.tokens?.in,
     q.tokens?.out,
+    costOfQ(q).toFixed(4),
     q.error,
     q.flags ? "yes" : "",
     (q.flags || []).join(" | "),

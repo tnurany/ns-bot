@@ -10,10 +10,11 @@
  * Logging must never break an answer. Every write is wrapped, and a failure
  * goes to the console only.
  */
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { costOf } from "./cost.js";
 
 export const LOG_DIR =
   process.env.LOG_DIR || join(dirname(fileURLToPath(import.meta.url)), "..", "logs");
@@ -48,6 +49,8 @@ export function whoFrom(activity) {
     id: activity.from?.aadObjectId || null, // Entra object ID, stable across devices
     teamsId: activity.from?.id || null,
     chat: activity.conversation?.conversationType || null, // personal, groupChat, channel
+    email: null, // these two are filled in by directory.js when Graph allows it
+    department: null,
   };
 }
 
@@ -69,6 +72,8 @@ export function logQuestion({ conversation, who, question, response, pulledAt, f
     pulledAt: pulledAt ? new Date(pulledAt).toISOString() : null,
     stop: response?.stop_reason || null,
     tokens: response ? { in: response.usage?.input_tokens || 0, out: response.usage?.output_tokens || 0 } : null,
+    // List-price estimate at the time of the answer: what the spend limits count.
+    cost: response ? Math.round(costOf(response.usage) * 1e6) / 1e6 : null,
     seconds: Math.round(seconds * 10) / 10,
     error: error ? String(error.message || error).slice(0, 500) : null,
     delivered: Boolean(delivered),
@@ -76,7 +81,12 @@ export function logQuestion({ conversation, who, question, response, pulledAt, f
   if (response) entry.answer = textOf(response.content);
   write(entry);
   lastQuestion.set(conversation, entry.id);
-  return entry.id;
+  return entry;
+}
+
+/** A question refused because the person was over a spend limit. */
+export function logBlocked({ conversation, who, question, window, limit, spent }) {
+  write({ at: new Date().toISOString(), kind: "blocked", conversation, who, question, window, limit, spent });
 }
 
 /** help, reset and the like: cheap to keep, and they show how people use the bot. */
@@ -92,6 +102,30 @@ export function flagLast({ conversation, who, note }) {
   const about = lastQuestion.get(conversation) || null;
   write({ at: new Date().toISOString(), kind: "flag", conversation, who, about, note: note || null });
   return Boolean(about);
+}
+
+/**
+ * Every entry from the last `days` local days, oldest first. Used by the
+ * review and by the spend ledger at startup.
+ */
+export function readEntries(days) {
+  if (!existsSync(LOG_DIR)) return [];
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  since.setHours(0, 0, 0, 0);
+  return readdirSync(LOG_DIR)
+    .filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f) && new Date(f.slice(0, 10)) >= since)
+    .sort()
+    .flatMap((f) => readFileSync(join(LOG_DIR, f), "utf8").split("\n").filter(Boolean))
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null; // a half-written line from a crash mid-append
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.at.localeCompare(b.at));
 }
 
 // Everything the model said, including narration between tool calls. The

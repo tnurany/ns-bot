@@ -14,7 +14,10 @@ import http from "node:http";
 import { App, ExpressAdapter } from "@microsoft/teams.apps";
 import { ask, reset, freshnessNote, TTL_MINUTES } from "./core.js";
 import { answerText, printResponse, explainError } from "./claude.js";
-import { logQuestion, logCommand, flagLast, whoFrom, LOG_DIR } from "./log.js";
+import { costOf } from "./cost.js";
+import { logQuestion, logCommand, logBlocked, flagLast, whoFrom, LOG_DIR } from "./log.js";
+import * as limits from "./limits.js";
+import { createDirectory } from "./directory.js";
 
 const local = process.argv.includes("--local");
 const port = Number(process.env.PORT) || 3978;
@@ -39,6 +42,7 @@ const HELP =
   `Data I pull is reused for follow-up questions for ${TTL_MINUTES} minutes, then pulled ` +
   "again. Each answer says when its data was pulled.\n\n" +
   "- **refresh**: pull fresh data for the last answer now\n" +
+  "- **budget**: how much of your usage limits you have used\n" +
   "- **wrong**: flag the last answer for review, e.g. `wrong, that's last year's total`\n" +
   "- **reset**: clear this chat's history and start over";
 
@@ -62,11 +66,16 @@ const app = new App({
   activity: { mentions: { stripText: true } },
 });
 
+// Department and email for the log come from Entra ID through Graph, as the app.
+// Local mode has no app credentials, and the Playground sends no object ID.
+const directory = createDirectory(local ? null : app.graph);
+
 app.on("message", async ({ activity, send }) => {
   const text = (activity.text || "").trim();
   if (!text) return;
   const conversation = activity.conversation.id;
-  const who = whoFrom(activity);
+  // Cached per person, so this waits on Graph about once a day per user.
+  const who = await directory.enrich(whoFrom(activity));
 
   const command = text.toLowerCase();
   if (command === "reset") {
@@ -78,6 +87,20 @@ app.on("message", async ({ activity, send }) => {
   if (command === "help") {
     logCommand({ conversation, who, command });
     await send(HELP);
+    return;
+  }
+  if (command === "budget") {
+    logCommand({ conversation, who, command });
+    await send(limits.report(who));
+    return;
+  }
+  // Admins: "limit", "limit set <email> week 25", "limit clear <email>",
+  // "limit <email>". The shapes are specific so a NetSuite question that
+  // happens to start with "limit" still gets answered.
+  const admin = /^limits?(?:\s+(?:set|clear)\s.*|\s+\S+@\S+|\s+[0-9a-f-]{36}|)$/is.exec(text);
+  if (admin) {
+    logCommand({ conversation, who, command: text }); // the audit trail for limit changes
+    await send(limits.adminCommand(who, text.replace(/^limits?\s*/i, "")));
     return;
   }
   // "wrong", "wrong: the total is off", "Wrong - that's last year"
@@ -94,6 +117,14 @@ app.on("message", async ({ activity, send }) => {
 
   // Who asked what, with the tool trace printed after it: the audit trail.
   console.log(`\n\x1b[1m[${new Date().toLocaleString()}] ${who.name || who.id}:\x1b[0m ${text}`);
+
+  const over = limits.check(who);
+  if (over) {
+    console.log(`\x1b[33m  blocked: ${over.window} spend $${over.spent.toFixed(2)} of $${over.limit.toFixed(2)}\x1b[0m`);
+    logBlocked({ conversation, who, question: text, window: over.window, limit: over.limit, spent: over.spent });
+    await send(limits.blockedMessage(over));
+    return;
+  }
 
   // Deliberately not awaited. See the header comment.
   answer(conversation, who, text, send);
@@ -116,6 +147,10 @@ async function answer(conversation, who, text, send) {
     reply = answerText(result.response);
     const note = freshnessNote(result);
     if (note) reply += `\n\n_${note}_`;
+    // Charged before the reply goes out: the tokens are spent either way.
+    // The note is the person's only warning before a limit blocks them.
+    const budget = limits.charge(who, costOf(result.response.usage));
+    if (budget) reply += `\n\n_${budget}_`;
   } catch (err) {
     error = err;
     explainError(err);
@@ -204,6 +239,12 @@ function userFacingError(err) {
 
 await app.initialize();
 
+// Fails loudly when limits.json is missing or broken: better than a bot
+// with no spend limits. The ledger comes from the log, so a restart keeps
+// everyone's running totals.
+console.log(limits.describe());
+console.log(`Spend ledger: ${limits.loadLedger()} answers from the log`);
+
 if (local) {
   // Local mode skips the check that a request really came from Teams, so it
   // listens on this machine only. Anything on the network could otherwise
@@ -213,8 +254,9 @@ if (local) {
     console.log("In another terminal: npm run playground");
   });
 } else {
-  server.listen(port, () => {
+  server.listen(port, async () => {
     console.log(`NS Bot on port ${port}, messaging endpoint path /api/messages`);
     console.log(`Logging questions and answers to ${LOG_DIR} (npm run review)`);
+    await directory.probe();
   });
 }

@@ -9,7 +9,7 @@ locally against Azure Bot Service. Hosting and per-user OAuth come later.
 ## Stack
 
 Node 22.12+ (`.nvmrc` pins 24), ESM (`"type": "module"`), `@anthropic-ai/sdk`,
-`@microsoft/teams.apps`, `dotenv`. No build step, no TypeScript, no test
+`@microsoft/teams.apps`, `dotenv`, `jsonc-parser`. No build step, no TypeScript, no test
 framework yet. Run things with `npm run <script>`.
 
 ## Layout
@@ -25,6 +25,11 @@ src/ask.js      One question
 src/chat.js     Conversation loop
 src/teams.js    Teams bot
 src/log.js      Question log (logs/*.jsonl) and the "wrong" flag
+src/directory.js  Department and email lookup through Microsoft Graph, for the log
+src/cost.js     Dollar cost from token usage (list prices)
+src/limits.js   Spend limits per person: limits.jsonc, ledger, admin commands
+src/departments.js  Entra departments with headcounts (npm run departments)
+limits.jsonc    Company, department and per-person limits, with comments
 src/review.js   Digest + CSV from the log (npm run review)
 src/check.js    Preflight diagnostics
 src/pkce.js     Full OAuth authorization flow
@@ -110,10 +115,41 @@ src/refresh-token.js  Token refresh
   stored as a 500-char preview plus row count, never the full rows. Logging
   is wrapped so a write failure can never break an answer. Only the Teams
   bot logs; `chat` is the developer tool and stays out of the data.
+- **Department and email in the log come from Microsoft Graph**, through the SDK's
+  `app.graph` (app-only token from the `TEAMS_*` credentials, no extra
+  package). Needs the Graph application permission `User.Read.All` with
+  admin consent. `User.ReadBasic.All` returns department blank, and only a
+  Global Administrator can consent Graph application permissions. Lookups
+  are cached a day per person; a 403 turns them off for the run with one
+  message that says how to fix it.
 - **NetSuite result shapes differ by tool.** Saved searches return a bare
   JSON array; SuiteQL returns `{resultCount, totalResults, data}`;
   metadata returns `{success, metadata}`. `rowCount` in log.js handles all
   three.
+
+## Spend limits
+
+- Per person: rolling 4 hours, calendar week (Monday), calendar month, in
+  local time (`TZ`). Three tiers in `limits.jsonc`: `company`, `departments`
+  (an entry covers its key or the Entra spellings in its `match` list),
+  `people` keyed by email or Entra object ID. Reread on change.
+- Spend is `cost` on each log entry (list price from `src/cost.js`), so the
+  ledger is rebuilt from `logs/` at startup. The check runs before the
+  Claude call; a person can overrun by one question. `charge()` runs after
+  the answer and appends a note when usage crosses 75/90/95/100 percent.
+  Users see percentages only; dollars are for admins (`limit <email>`).
+- **`limits.jsonc` is JSON with comments** (jsonc-parser, trailing commas
+  allowed), so non-developers can uncomment a department. `limit set/clear`
+  in Teams must edit it through jsonc-parser's `modify`, never
+  `JSON.stringify`, or every comment is lost. Admins are `LIMIT_ADMINS`.
+  When hosted, `LIMITS_FILE` must point outside the deployed folder or a
+  deploy overwrites Teams edits.
+- **The Entra department field is messy**: about 30% of people have none,
+  and teams appear under several spellings ("IT" and "Information
+  Technology"). `company` is the real control; add a department entry only
+  when it should differ, with every spelling in its `match` list.
+- A missing or broken `limits.jsonc` at startup is fatal on purpose. A
+  broken edit while running keeps the last good version.
 
 ## Conventions
 

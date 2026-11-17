@@ -14,7 +14,8 @@
     "teams:local": "node src/teams.js --local",
     "playground": "agentsplayground",
     "teams:package": "cd appPackage && zip -q -X -j ../ns-bot-teams.zip manifest.json color.png outline.png && echo Created ns-bot-teams.zip",
-    "review": "node src/review.js"
+    "review": "node src/review.js",
+    "departments": "node src/departments.js"
   },
   "engines": {
     "node": ">=22.12"
@@ -22,7 +23,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
     "@microsoft/teams.apps": "^2.1.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "jsonc-parser": "^3.3.1"
   },
   "devDependencies": {
     "@microsoft/m365agentsplayground": "^0.2.29"
