@@ -41,7 +41,9 @@ function forgetIdle() {
 }
 
 /**
- * Asks a question in a conversation. Resolves to { response, pulledAt, fresh }:
+ * Asks a question in a conversation, as `login` (a person's own NetSuite
+ * login from user-tokens.js; omitted means the bot's shared one). Resolves
+ * to { response, pulledAt, fresh }:
  * the raw API response, when the NetSuite data behind the answer was pulled
  * (null if none was involved), and whether this turn pulled it.
  *
@@ -49,10 +51,10 @@ function forgetIdle() {
  * succession would otherwise both read the history before either answer is
  * saved, and "and last year?" would arrive without the question it follows.
  */
-export function ask(conversationId, question) {
+export function ask(conversationId, question, { login } = {}) {
   forgetIdle();
   const c = conversation(conversationId);
-  const run = c.queue.then(() => turn(c, question));
+  const run = c.queue.then(() => turn(c, question, login));
   c.queue = run.catch(() => {}); // a failed turn must not block the next one
   return run;
 }
@@ -61,7 +63,7 @@ export function reset(conversationId) {
   conversations.delete(conversationId);
 }
 
-async function turn(c, question) {
+async function turn(c, question, login) {
   const now = Date.now();
   const messages = [];
   for (const t of c.turns) {
@@ -75,7 +77,8 @@ async function turn(c, question) {
 
   // Prompt files are reloaded every turn, so an edit applies to the next
   // question without a restart.
-  const res = await askClaude({ system: loadSystemPrompt(), messages });
+  // No login means the bot's shared one.
+  const res = await askClaude({ system: loadSystemPrompt(), messages, login });
 
   // Which data the model actually leaned on is not knowable, so this is the
   // conservative reading: if it queried NetSuite this turn, the data is new;

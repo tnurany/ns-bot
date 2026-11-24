@@ -32,15 +32,29 @@ src/departments.js  Entra departments with headcounts (npm run departments)
 limits.jsonc    Company, department and per-person limits, with comments
 src/review.js   Digest + CSV from the log (npm run review)
 src/check.js    Preflight diagnostics
-src/pkce.js     Full OAuth authorization flow
+src/pkce.js     OAuth sign-in for the shared login
+src/token.js    OAuth flow pieces, token requests, shared login refresh
+src/signin.js   Personal NetSuite sign-in from Teams: link, card, callback route
+src/user-tokens.js  Each person's NetSuite tokens, encrypted (AES-256-GCM), refreshed per person
 src/refresh-token.js  Token refresh
 ```
 
 ## NetSuite constraints (learned the hard way, do not rediscover)
 
-- **Refresh tokens last 168 hours. Hard ceiling, cannot be raised.** Each
-  refresh issues a new refresh token and resets the clock. The old one dies
-  immediately, so saving the new one is mandatory.
+- **Refresh tokens last 168 hours. Hard ceiling, cannot be raised.** For a
+  confidential client (ours: client secret, Basic auth) a refresh returns a
+  new access token only, no new refresh token, so the clock is NOT reset:
+  re-authorization is due 7 days after sign-in no matter how often you
+  refresh. Oracle's Step Two docs show no refresh_token in the refresh
+  response, and the sandbox confirmed it (2026-09-29). Still save a
+  refresh_token if one ever comes back. Public clients do rotate, but rotation
+  is capped (integration record "Maximum Time For Token Rotation", default
+  168h).
+- **PKCE is required for the `mcp` scope** even for confidential clients
+  (S256 only), and token requests must authenticate with an HTTP Basic header.
+  Azure Bot Service's built-in OAuth connections document neither (no PKCE
+  fields, client credentials only in the body), so they don't fit NetSuite
+  without workarounds.
 - **Access tokens last about 1 hour.**
 - **NetSuite rejects `http://` redirect URIs entirely.** Must be https, even
   for localhost. `https://localhost/callback` works; the page fails to load and
@@ -122,6 +136,22 @@ src/refresh-token.js  Token refresh
   Global Administrator can consent Graph application permissions. Lookups
   are cached a day per person; a 403 turns them off for the run with one
   message that says how to fix it.
+- **Personal NetSuite sign-in is our own OAuth flow** (`signin.js`), not
+  Azure's OAuth connections (no PKCE, no Basic header). The callback is
+  `NS_SIGNIN_REDIRECT_URI`, which must be on the integration record. Links
+  go out in 1:1 chats only (in a group anyone could attach their login to
+  someone else's Teams account); state is single use, 10 minutes.
+- **A NetSuite access token is a JWT whose `sub` is `<role id>;<entity id>`.**
+  `tokenClaims()` reads it for the log and the confirmation message. SuiteQL
+  has no role table, so the role name waits for `ns_getSessionInfo`.
+- **NetSuite issues a token for any role, including ones MCP refuses**
+  (Administrator, no MCP Server Connection). The callback makes one
+  `tools/list` call before saving, so the person hears it then, not on their
+  first question.
+- **Someone whose sign-in ran out never falls back to the shared login.** The
+  record stays (marked dead) so they get the sign-in card instead. History
+  is keyed by conversation and person, and reset on sign-in and sign-out, so
+  no answer mixes rows pulled under two logins.
 - **NetSuite result shapes differ by tool.** Saved searches return a bare
   JSON array; SuiteQL returns `{resultCount, totalResults, data}`;
   metadata returns `{success, metadata}`. `rowCount` in log.js handles all

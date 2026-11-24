@@ -80,8 +80,55 @@ For real Teams, add `TEAMS_CLIENT_ID`, `TEAMS_TENANT_ID` and
 4. `npm run teams:package`, then in Teams: Apps > Manage your apps > Upload an
    app > upload `ns-bot-teams.zip`. Needs custom app upload permission.
 
-In Teams, `help`, `reset`, `refresh`, `wrong` and `budget` are commands. The console prints who asked what
-and the tool trace for every question.
+In Teams, `help`, `reset`, `refresh`, `wrong`, `budget`, `sign in` and
+`sign out` are commands. The console prints who asked what and the tool trace
+for every question.
+
+### Personal NetSuite sign-in
+
+Each person can sign in to NetSuite from Teams, and the bot then answers with
+their own role: they see exactly what that role can see. Anyone who has not
+signed in is answered with the shared login from `npm run pkce`, unless
+`NS_SIGNIN_REQUIRED=true`.
+
+Azure Bot Service's built-in sign-in can't be used: NetSuite requires PKCE and
+an HTTP Basic header at the token endpoint, and Azure's OAuth connections
+support neither. `src/signin.js` runs the same flow as `npm run pkce`, with a
+callback route on the bot instead of a pasted URL.
+
+Setup, once:
+
+1. In NetSuite, add the callback to the integration record's redirect URIs,
+   next to `https://localhost/callback`:
+   `https://<tunnel-host>/auth/netsuite/callback`
+2. In `.env`, set `NS_SIGNIN_REDIRECT_URI` to exactly that URL, and
+   `NS_USER_TOKENS_KEY` to 32 random bytes in base64 (command in
+   `.env.example`).
+3. Each person's NetSuite role needs **MCP Server Connection** and **Log in
+   using OAuth 2.0 Access Tokens**, plus whatever record permissions they
+   should have. Administrator does not work: Oracle blocks it.
+
+How it works for a person:
+
+- `sign in` (1:1 chat only, so nobody else can click their link) sends a card
+  with a NetSuite link. It works once and expires in 10 minutes.
+- They sign in, pick their role and click Allow. The tab says "Signed in", and
+  the bot confirms in Teams with the role ID.
+- The bot refreshes their access token every hour. **After 7 days they must
+  sign in again**: NetSuite does not extend the refresh token. The bot warns a
+  day ahead, and when it runs out it sends the card and answers the question
+  once they are back.
+- Someone whose sign-in ran out never falls back to the shared login, which
+  might see more than their role.
+- `sign out` deletes their tokens.
+
+Tokens are stored encrypted in `data/user-tokens.enc` (or
+`NS_USER_TOKENS_FILE`). Losing or changing the key signs everyone out. Each
+log entry records which login answered (`login`: `"shared"` or the role and
+entity IDs).
+
+History is kept per person, even in a group chat, so a follow-up never reuses
+rows pulled under someone else's role.
 
 `appPackage/` holds the manifest and placeholder icons. Bump `version` in
 `manifest.json` whenever you re-upload a changed package.
@@ -191,21 +238,21 @@ limits set from Teams.
 
 - **Access token: about 1 hour.** `src/token.js` refreshes it before any
   request that would land within 2 minutes of expiry, and again if NetSuite
-  rejects it anyway. The new access token, new refresh token and
-  `NS_TOKEN_EXPIRES_AT` are written to both `process.env` and `.env`, so a
+  rejects it anyway. The new access token and `NS_TOKEN_EXPIRES_AT` are
+  written to both `process.env` and `.env`, so a
   long `chat` session survives across the hour. `npm run refresh` still works
   if you want to force one.
-- **Refresh token: 168 hours (7 days), hard ceiling.** Each refresh issues a
-  new one and resets the clock, and the old one dies immediately. Any use of
-  `ask`, `chat` or `check` that triggers a refresh keeps you signed in. Go 7
-  days with no refresh and you get `invalid_grant`; redo `npm run pkce`.
+- **Refresh token: 168 hours (7 days), hard ceiling.** For our confidential
+  client a refresh returns no new refresh token, so the clock is not reset:
+  7 days after `npm run pkce` you get `invalid_grant` however often the bot
+  was used. Redo `npm run pkce` weekly.
 
 Auto-refresh needs `NS_CLIENT_ID`, `NS_CLIENT_SECRET` and `NS_REFRESH_TOKEN`.
 `npm run check` warns if any are missing and shows minutes left on the token.
 
 The 7-day limit is a NetSuite constraint, not something the code can work
-around. It becomes a significant user experience problem at Stage 4 when real
-users are involved.
+around. People who sign in from Teams hit it too: see Personal NetSuite
+sign-in above.
 
 ## Layout
 
@@ -235,8 +282,10 @@ src/
   departments.js   Lists Entra departments with headcounts (npm run departments)
   review.js        Digest and CSV from the log
   check.js         Preflight diagnostics
-  pkce.js          Full OAuth authorization
-  token.js         Token lifecycle: refresh, persist, expiry
+  pkce.js          OAuth sign-in for the shared login
+  token.js         OAuth flow pieces, token requests, shared login refresh
+  signin.js        Personal NetSuite sign-in from Teams: link, card, callback
+  user-tokens.js   Each person's NetSuite tokens, encrypted, refreshed per person
   refresh-token.js Force a refresh (CLI wrapper over token.js)
 ```
 

@@ -58,13 +58,16 @@ export function whoFrom(activity) {
  * A question and what came of it. `response` is the raw API response (may be
  * absent when the request failed), `error` the thrown error if any.
  */
-export function logQuestion({ conversation, who, question, response, pulledAt, fresh, seconds, error, delivered }) {
+export function logQuestion({ conversation, who, question, response, pulledAt, fresh, seconds, error, delivered, login }) {
   const entry = {
     id: randomBytes(4).toString("hex"),
     at: new Date().toISOString(),
     kind: "question",
     conversation,
     who,
+    // Whose NetSuite access answered: "shared" (the bot's login) or the
+    // person's own role and entity IDs from their sign-in.
+    login: login || "shared",
     question,
     answer: null,
     calls: response ? extractCalls(response.content) : [],
@@ -90,8 +93,8 @@ export function logBlocked({ conversation, who, question, window, limit, spent }
 }
 
 /** help, reset and the like: cheap to keep, and they show how people use the bot. */
-export function logCommand({ conversation, who, command }) {
-  write({ at: new Date().toISOString(), kind: "command", conversation, who, command });
+export function logCommand({ conversation, who, command, login }) {
+  write({ at: new Date().toISOString(), kind: "command", conversation, who, command, ...(login && { login }) });
 }
 
 /**

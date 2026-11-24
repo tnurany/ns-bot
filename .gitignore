@@ -5,3 +5,4 @@ node_modules/
 .DS_Store
 ns-bot-teams.zip
 logs/
+data/

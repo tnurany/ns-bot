@@ -4,7 +4,8 @@
  *   npm run pkce
  *
  * Run this when you have no tokens, or when the refresh token has expired
- * (after 7 days). It does step 1 of the OAuth authorization code flow.
+ * (7 days after sign-in). It signs in the bot's shared login; people in
+ * Teams sign in for themselves with "sign in" (src/signin.js).
  *
  * What PKCE is: you keep a random string (the verifier) and send only its
  * SHA-256 hash (the challenge) when you start. At token exchange you send the
@@ -15,31 +16,19 @@ import crypto from "node:crypto";
 import readline from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import "dotenv/config";
-import { tokenUrl, saveTokens } from "./token.js";
+import { pkcePair, authorizeUrl, requestToken, saveTokens } from "./token.js";
 
-const account = process.env.NS_ACCOUNT;
-const clientId = process.env.NS_CLIENT_ID;
-const clientSecret = process.env.NS_CLIENT_SECRET;
 const redirectUri = process.env.NS_REDIRECT_URI || "https://localhost/callback";
 
-if (!account || !clientId || !clientSecret) {
+if (!process.env.NS_ACCOUNT || !process.env.NS_CLIENT_ID || !process.env.NS_CLIENT_SECRET) {
   console.error("Set NS_ACCOUNT, NS_CLIENT_ID and NS_CLIENT_SECRET in .env first.");
   process.exit(1);
 }
 
-const verifier = crypto.randomBytes(32).toString("base64url");
-const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+const { verifier, challenge } = pkcePair();
+// NetSuite wants 22 to 1024 characters.
 const state = crypto.randomBytes(16).toString("hex");
-
-const authUrl =
-  `https://${account}.app.netsuite.com/app/login/oauth2/authorize.nl` +
-  `?response_type=code` +
-  `&client_id=${encodeURIComponent(clientId)}` +
-  `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-  `&scope=mcp` +
-  `&state=${state}` +
-  `&code_challenge=${challenge}` +
-  `&code_challenge_method=S256`;
+const authUrl = authorizeUrl({ redirectUri, state, challenge });
 
 console.log("\n1. Open an INCOGNITO window. This matters: a normal window");
 console.log("   reuses your Administrator session, and Oracle blocks the");
@@ -73,42 +62,24 @@ if (returnedState !== state) {
   process.exit(1);
 }
 
-const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-
-const res = await fetch(tokenUrl(), {
-  method: "POST",
-  headers: {
-    Authorization: `Basic ${basic}`,
-    "Content-Type": "application/x-www-form-urlencoded",
-  },
-  body: new URLSearchParams({
+let data;
+try {
+  data = await requestToken({
     grant_type: "authorization_code",
     code,
     redirect_uri: redirectUri,
     code_verifier: verifier,
-  }),
-});
-
-const body = await res.text();
-
-if (!res.ok) {
-  console.error(`\nToken exchange failed (HTTP ${res.status}):\n${body}\n`);
-  console.error(
-    "invalid_grant usually means the code expired (they last minutes and are\n" +
-      "single use) or the redirect_uri does not match the integration record\n" +
-      "character for character. 404 means the wrong host: add\n" +
-      `NS_TOKEN_HOST=${account}.app.netsuite.com to .env.`
-  );
+  });
+} catch (err) {
+  console.error(`\n${err.message}`);
   process.exit(1);
 }
-
-const data = JSON.parse(body);
 
 if (saveTokens(data)) {
   console.log("\nTokens written to .env");
   console.log(`  expires_in: ${data.expires_in}s`);
-  console.log("  Refresh is automatic from here. The refresh token dies after 7 days");
-  console.log("  without use, so run ask, chat or check at least once a week.");
+  console.log("  Refresh is automatic from here, but only for 7 days: NetSuite does not");
+  console.log("  extend the refresh token, so run npm run pkce again within a week.");
 } else {
   console.log(JSON.stringify(data, null, 2));
 }

@@ -31,8 +31,27 @@ const MAX_RESUMES = 4;
  * check the MCP connector page in the Anthropic docs. Both are configurable
  * from .env so you can adjust without touching this file.
  */
-export async function askClaude({ system, messages, maxTokens = MAX_TOKENS }) {
-  let res = await askOnce({ system, messages, maxTokens });
+/**
+ * The bot's shared NetSuite login from .env. A person who signed in through
+ * Teams brings their own instead (user-tokens.js authFor), with the same
+ * shape: token() for the current access token, refresh() to force a new one
+ * (null when that is not possible).
+ */
+export const sharedLogin = {
+  kind: "shared",
+  async token() {
+    await ensureFreshToken();
+    return config.nsAccessToken;
+  },
+  async refresh() {
+    if (!canRefresh()) return null;
+    await refreshAccessToken();
+    return config.nsAccessToken;
+  },
+};
+
+export async function askClaude({ system, messages, maxTokens = MAX_TOKENS, login = sharedLogin }) {
+  let res = await askOnce({ system, messages, maxTokens }, login);
   const content = [...res.content];
   let inTokens = res.usage?.input_tokens || 0;
   let outTokens = res.usage?.output_tokens || 0;
@@ -40,11 +59,14 @@ export async function askClaude({ system, messages, maxTokens = MAX_TOKENS }) {
   for (let i = 0; res.stop_reason === "pause_turn" && i < MAX_RESUMES; i++) {
     // Resend the turn so far as the assistant message, with no extra user
     // message. The API sees the unfinished tool loop and picks it up.
-    res = await askOnce({
-      system,
-      messages: [...messages, { role: "assistant", content }],
-      maxTokens,
-    });
+    res = await askOnce(
+      {
+        system,
+        messages: [...messages, { role: "assistant", content }],
+        maxTokens,
+      },
+      login
+    );
     content.push(...res.content);
     inTokens += res.usage?.input_tokens || 0;
     outTokens += res.usage?.output_tokens || 0;
@@ -53,17 +75,18 @@ export async function askClaude({ system, messages, maxTokens = MAX_TOKENS }) {
   return { ...res, content, usage: { ...res.usage, input_tokens: inTokens, output_tokens: outTokens } };
 }
 
-async function askOnce(args) {
-  await ensureFreshToken();
+async function askOnce(args, login) {
+  const token = await login.token();
   try {
-    return await sendOnce(args);
+    return await sendOnce(args, token);
   } catch (err) {
     // Expiry can be unknown (no NS_TOKEN_EXPIRES_AT yet) or wrong (token
     // revoked early), so the proactive check is not enough on its own.
-    if (!isNetSuiteAuthError(err) || !canRefresh()) throw err;
+    if (!isNetSuiteAuthError(err)) throw err;
     console.warn("\n[info] NetSuite rejected the access token. Refreshing and retrying once.");
-    await refreshAccessToken();
-    return await sendOnce(args);
+    const fresh = await login.refresh();
+    if (!fresh) throw err;
+    return await sendOnce(args, fresh);
   }
 }
 
@@ -87,7 +110,7 @@ function isNetSuiteAuthError(err) {
  * noticed a warning in the log. If the API rejects this shape, the request
  * fails and explainError says why.
  */
-async function sendOnce({ system, messages, maxTokens }) {
+async function sendOnce({ system, messages, maxTokens }, accessToken) {
   return client.beta.messages.create(
     {
       model: config.model,
@@ -99,7 +122,7 @@ async function sendOnce({ system, messages, maxTokens }) {
           type: "url",
           url: config.nsMcpUrl,
           name: "netsuite",
-          authorization_token: config.nsAccessToken,
+          authorization_token: accessToken,
         },
       ],
       tools: [
